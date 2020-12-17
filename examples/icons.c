@@ -40,13 +40,12 @@ static uint8_t cross[] = {
   0b00000
 };
 
-void lcdInit (void) {
+int main (void) {
 
   // this call is blocking
   lcd2004Init();
   
   // async from now on
-  lcdTransactionStart();
   lcdTransactionAddChar(LCD_CHAR_CROSS, cross);
   lcdTransactionAddChar(LCD_CHAR_CHECK, check);
   lcdTransactionAddChar(LCD_CHAR_SKULL, skull);
@@ -56,5 +55,10 @@ void lcdInit (void) {
   lcdTransactionAppendAscii(LCD_CHAR_CROSS);
   lcdTransactionSetCursor(0,2);
   lcdTransactionAppendAscii(LCD_CHAR_SKULL);
-  lcdTransactionEnd();
+  
+  while (1) {
+  
+      lcdTransactionEnd();
+  }
+
 }

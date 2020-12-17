@@ -74,7 +74,6 @@
 void lcdTransactionAppendChar (char data);
 void lcdTransactionAppendString (char *str);
 void lcdTransactionAppendInt (int32_t i);
-void lcdTransactionStart (void);
 void lcdTransactionEnd (void);
 void lcdTransactionAppendAscii (uint8_t data);
 void lcdTransactionSetCursor (uint8_t col, uint8_t row);

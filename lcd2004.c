@@ -68,6 +68,11 @@ static void transactionWrite (uint8_t* data, uint8_t size) {
 
 static void send (uint8_t data, uint8_t mode) {
 
+  if (!dmaBuffer.locked) { 
+    dmaBuffer.locked = 1;
+    dmaBuffer.writeBuffer = getNextBuffer(dmaBuffer.writeBuffer);
+  }
+
   uint8_t packet[4];
   uint8_t focus = data & 0xF0;
   packet[0] = focus | mode | LCD_BACKLIGHT | LCD_CMD_EN;
@@ -86,26 +91,20 @@ static void transactionAppendCommand (uint8_t data) {
 // used only on init
 static void lcdCmd4 (uint8_t cmd) {
 
-  lcdTransactionStart();
   transactionAppendCommand(cmd);
   lcdTransactionEnd();
   while (dmaBuffer.writing) {}
-  nrf_delay_ms(1);
+  nrf_delay_ms(2);
 }
 
 // PUBLIC
-
-void lcdTransactionStart (void) {
-
-  dmaBuffer.locked = 1;
-  dmaBuffer.writeBuffer = getNextBuffer(dmaBuffer.writeBuffer);
-}
-
 void lcdTransactionEnd (void) {
   
-  dmaBuffer.locked = 0;
-  if (!dmaBuffer.writing) {
-    __startTransfer();
+  if (dmaBuffer.writeBuffer->size) {
+    dmaBuffer.locked = 0;
+    if (!dmaBuffer.writing) {
+      __startTransfer();
+    }
   }
 }
 
