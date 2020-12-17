@@ -22,6 +22,7 @@
 
 #define CFG_TWIM_LCD_TX NRF_TWIM0
 
+#define LCD_I2C_ADDRESS 0x3f // may need to change
 #define LINES LCD_4LINE // choose 2 or 4 line display
 
 /*
@@ -89,7 +90,7 @@ static void lcdCmd4 (uint8_t cmd) {
   transactionAppendCommand(cmd);
   lcdTransactionEnd();
   while (dmaBuffer.writing) {}
-  nrf_delay_ms(2);
+  nrf_delay_ms(1);
 }
 
 // PUBLIC
@@ -182,7 +183,7 @@ void lcd2004Init (void) {
   CFG_TIMER_LCD_COUNTER->SHORTS = TIMER_SHORTS_COMPARE0_CLEAR_Enabled << TIMER_SHORTS_COMPARE0_CLEAR_Pos;
   CFG_TIMER_LCD_COUNTER->INTENSET = TIMER_INTENSET_COMPARE0_Enabled << TIMER_INTENSET_COMPARE0_Pos;
  
-  CFG_TWIM_LCD_TX->ADDRESS = 0x3f;
+  CFG_TWIM_LCD_TX->ADDRESS = LCD_I2C_ADDRESS;
   CFG_TWIM_LCD_TX->FREQUENCY = TWIM_FREQUENCY_FREQUENCY_K100 << TWIM_FREQUENCY_FREQUENCY_Pos;
   CFG_TWIM_LCD_TX->PSEL.SCL = (TWIM_PSEL_SCL_CONNECT_Connected << TWIM_PSEL_SCL_CONNECT_Pos) | CFG_PIN_LCD_SCL;
   CFG_TWIM_LCD_TX->PSEL.SDA = (TWIM_PSEL_SDA_CONNECT_Connected << TWIM_PSEL_SDA_CONNECT_Pos) | CFG_PIN_LCD_SDA;
@@ -217,11 +218,10 @@ void lcd2004Init (void) {
   lcdCmd4(LCD_FUNCTIONSET | LCD_4BITMODE | LINES);
   lcdCmd4(LCD_DISPLAYSET | LCD_DISPLAYOFF | LCD_CURSOROFF | LCD_BLINKOFF);
   lcdCmd4(LCD_CLEARDISPLAY);
-  nrf_delay_ms(2000);
+  nrf_delay_ms(1);
   lcdCmd4(LCD_ENTRYMODESET | LCD_ENTRYLEFT | LCD_ENTRYSHIFTDECREMENT);
-  //lcdCmd4(LCD_RETURNHOME);
-  //nrf_delay_ms(2000);
-  lcdCmd4(LCD_SETDDRAMADDR); // fast home
+  lcdCmd4(LCD_RETURNHOME);
+  nrf_delay_ms(1);
   lcdCmd4(LCD_DISPLAYSET | LCD_DISPLAYON | LCD_CURSOROFF | LCD_BLINKOFF);
   nrf_delay_ms(1);
 }
