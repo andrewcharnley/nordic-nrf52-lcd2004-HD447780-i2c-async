@@ -1,0 +1,1 @@
+v1.0 - Dec 17 - initial release, no known issues. All functions tested.
