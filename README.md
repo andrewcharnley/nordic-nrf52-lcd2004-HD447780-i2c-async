@@ -2,25 +2,29 @@ Nordic NRF52 LCD driver (1602, 2004 etc) for HD447780 and I2C piggyback.
 
 A problem with the I2C piggyback is timing between data and commands which is normally resolved
 with CPU based delays. Well hold on to your socks, because this library executes multiple commands
-and data insertions as a transaction with NO CPU overhead, just a single interrupt at the end 
+and data insertions as a transaction with no CPU intervention - just a single interrupt at the end 
 (write the whole screen in various places if you want).
 
-A transaction is began as soon as any of the commands are invoked. A transaction is flushed at 
-the end of the main loop and so you MUST include lcdTransactionEnd();` at the end of the main loop 
-but BEFORE any sleep mode code. 
+A transaction is began as soon as any of the commands are invoked. Because a transaction is flushed at 
+the end of the main loop you Mmust include lcdTransactionEnd();` at the end of the main loop 
+but before any sleep mode code. 
 
 Usage -
 
-`lcdTransactionAppendString("Hello ");
+```
+lcdTransactionAppendString("Hello ");
 lcdTransactionAppendInt(123); // print up to a 32 bit signed int
 lcdSetCursor(0,1);
 lcdTransactionAppendString("World ");
-lcdTransactionAppendChar('0');`
+lcdTransactionAppendChar('0');
+```
 
 Output -
 
+```
 HELLO 123
 WORLD 0
+```
 
 Lots of small writes at random times? Consider one transaction to redraw everything at an interval.
 
