@@ -11,6 +11,8 @@ but before any sleep mode code.
 
 Usage -
 
+Please configure the top of lcd2004.c and then before your main loop add `lcd2004Init()`.
+
 ```
 lcdTransactionAppendString("Hello ");
 lcdTransactionAppendInt(123); // print up to a 32 bit signed int
