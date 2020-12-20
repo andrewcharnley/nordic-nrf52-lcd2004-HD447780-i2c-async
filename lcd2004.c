@@ -33,16 +33,25 @@
 
 struct dmaBufferProto {
   uint16_t size;
+  uint8_t packetSize;
   uint8_t data[LCD_BUFFER_LENGTH];
 };
 
-static struct {
+volatile static struct {
   struct dmaBufferProto buffers[LCD_BUFFER_ARRAY];
   uint8_t locked;
   uint8_t writing;
   struct dmaBufferProto *writeBuffer;
   struct dmaBufferProto *transferBuffer;
 } dmaBuffer;
+
+static char *itoa_simple_helper(char *dest, int i) {
+  if (i <= -10) {
+    dest = itoa_simple_helper(dest, i/10);
+  }
+  *dest++ = '0' - i%10;
+  return dest;
+}
 
 static struct dmaBufferProto* getNextBuffer (struct dmaBufferProto *buffer) {
 
@@ -54,38 +63,85 @@ static void __startTransfer (void) {
 
   dmaBuffer.writing = 1;
   CFG_TWIM_LCD_TX->TXD.PTR = (uint32_t) &dmaBuffer.transferBuffer->data[0];
-  CFG_TIMER_LCD_COUNTER->CC[0] = dmaBuffer.transferBuffer->size / NRF_TWIM0->TXD.MAXCNT;
+  CFG_TWIM_LCD_TX->TXD.MAXCNT = dmaBuffer.transferBuffer->packetSize;
+  CFG_TIMER_LCD_COUNTER->CC[0] = dmaBuffer.transferBuffer->size / dmaBuffer.transferBuffer->packetSize;
+  printf("bytes %d \n", dmaBuffer.transferBuffer->size);
   CFG_TIMER_LCD_SPACE->TASKS_START = 1;
 }
 
-static void transactionWrite (uint8_t* data, uint8_t size) {
+/*
+ * Writes data into the current write buffer
+ */
+static void transactionWrite (uint8_t* data) {
+
+  // buffer full, transmit and move to the next one?
+  uint8_t packetSize = dmaBuffer.writeBuffer->packetSize;
+  if (dmaBuffer.writeBuffer->size + packetSize >= LCD_BUFFER_LENGTH) {
+    dmaBuffer.writeBuffer = getNextBuffer(dmaBuffer.writeBuffer);
+    dmaBuffer.writeBuffer->packetSize = packetSize;
+    if (! dmaBuffer.writing) {
+      __startTransfer();
+    }
+  }
 
   uint8_t *ref = &dmaBuffer.writeBuffer->data[0];
   ref += dmaBuffer.writeBuffer->size;
-  memcpy(ref, data, size);
-  dmaBuffer.writeBuffer->size += size;
+  memcpy(ref, data, packetSize);
+  dmaBuffer.writeBuffer->size += packetSize;
 }
 
-static void send (uint8_t data, uint8_t mode) {
+/*
+ * If a transaction hasn't began selects the next buffer as the write target (which will be pos 0 on init)
+ */
+static void selectWriteBuffer (uint8_t packetSize) {
 
   if (!dmaBuffer.locked) { 
     dmaBuffer.locked = 1;
     dmaBuffer.writeBuffer = getNextBuffer(dmaBuffer.writeBuffer);
+    dmaBuffer.writeBuffer->packetSize = packetSize;
   }
-
-  uint8_t packet[4];
-  uint8_t focus = data & 0xF0;
-  packet[0] = focus | mode | LCD_BACKLIGHT | LCD_CMD_EN;
-  packet[1] = focus | mode | LCD_BACKLIGHT;
-  focus = (data << 4) & 0xF0;
-  packet[2] = focus | mode | LCD_BACKLIGHT | LCD_CMD_EN;
-  packet[3] = focus | mode | LCD_BACKLIGHT;
-  transactionWrite(&packet[0], 4);
 }
 
+/*
+ * Splits data into multiple 4-bit writes and adds to write buffer 
+ */
+static void send4 (uint8_t data, uint8_t mode) {
+
+  selectWriteBuffer(6);
+  uint8_t packet[6];
+  uint8_t focus = data & 0xF0;
+  packet[0] = focus | mode | LCD_BACKLIGHT | LCD_CMD_EN;
+  packet[1] = packet[0];
+  packet[2] = focus | mode | LCD_BACKLIGHT;
+  focus = (data << 4) & 0xF0;
+  packet[3] = focus | mode | LCD_BACKLIGHT | LCD_CMD_EN;
+  packet[4] = packet[3];
+  packet[5] = focus | mode | LCD_BACKLIGHT;
+  transactionWrite(&packet[0]);
+}
+
+/*
+ * Adds a command in 4-bit mode to ther write buffer
+ */
 static void transactionAppendCommand (uint8_t data) {
 
-  send(data, 0);
+  send4(data, 0);
+}
+
+// used only on init
+static void lcdCmd8 (uint8_t cmd) {
+
+  cmd |= LCD_FUNCTIONSET;
+  selectWriteBuffer(3);
+  cmd <<= 4;
+  uint8_t packet[3];
+  packet[0] = cmd | LCD_CMD_EN;
+  packet[1] = packet[0];
+  packet[2] = cmd;
+  transactionWrite(&cmd);
+  lcdTransactionEnd();
+  while (dmaBuffer.writing) {}
+  nrf_delay_ms(1);
 }
 
 // used only on init
@@ -94,17 +150,17 @@ static void lcdCmd4 (uint8_t cmd) {
   transactionAppendCommand(cmd);
   lcdTransactionEnd();
   while (dmaBuffer.writing) {}
-  nrf_delay_ms(2);
+  nrf_delay_ms(1);
 }
 
 // PUBLIC
 void lcdTransactionEnd (void) {
   
-  if (dmaBuffer.writeBuffer->size) {
-    dmaBuffer.locked = 0;
+  if (dmaBuffer.locked) {
     if (!dmaBuffer.writing) {
       __startTransfer();
     }
+    dmaBuffer.locked = 0;
   }
 }
 
@@ -118,7 +174,7 @@ void lcdTransactionAddChar(uint8_t location, uint8_t charmap[]) {
 
 void lcdTransactionAppendAscii (uint8_t data) {
 
-  send(data, LCD_CMD_RS);
+  send4(data, LCD_CMD_RS);
 }
 
 void lcdTransactionAppendChar (char data) {
@@ -131,14 +187,6 @@ void lcdTransactionAppendString (char *str) {
   while (*str) {
     lcdTransactionAppendAscii(*str++);
   }
-}
-
-static char *itoa_simple_helper(char *dest, int i) {
-  if (i <= -10) {
-    dest = itoa_simple_helper(dest, i/10);
-  }
-  *dest++ = '0' - i%10;
-  return dest;
 }
 
 void lcdTransactionAppendInt (int32_t i) {
@@ -188,7 +236,6 @@ void lcd2004Init (void) {
   CFG_TWIM_LCD_TX->PSEL.SDA = (TWIM_PSEL_SDA_CONNECT_Connected << TWIM_PSEL_SDA_CONNECT_Pos) | CFG_PIN_LCD_SDA;
   CFG_TWIM_LCD_TX->SHORTS = TWIM_SHORTS_LASTTX_STOP_Enabled << TWIM_SHORTS_LASTTX_STOP_Pos;
   CFG_TWIM_LCD_TX->TXD.LIST = TWIM_TXD_LIST_LIST_ArrayList << TWIM_TXD_LIST_LIST_Pos;
-  CFG_TWIM_LCD_TX->TXD.MAXCNT = LCD_PAYLOAD_CMD_DATA;
   CFG_TWIM_LCD_TX->ENABLE = TWIM_ENABLE_ENABLE_Enabled << TWIM_ENABLE_ENABLE_Pos;
 
   NRF_PPI->CH[CFG_PPI_LCD_CHANNEL_TWIM_START].EEP = (uint32_t) &CFG_TIMER_LCD_SPACE->EVENTS_COMPARE[0]; // wire timer compare
@@ -205,23 +252,31 @@ void lcd2004Init (void) {
   dmaBuffer.transferBuffer = &dmaBuffer.buffers[0];
   dmaBuffer.writeBuffer = &dmaBuffer.buffers[LCD_BUFFER_ARRAY-1];
 
+  // voltage charge (assume nrf will launch before 5v reached)
+  nrf_delay_ms(200);
+
+  // pull RS and R/W low to begin commands
+  selectWriteBuffer(1);
+  uint8_t cmd = LCD_NOBACKLIGHT;
+  transactionWrite(&cmd);
+  lcdTransactionEnd();
+  while (dmaBuffer.writing) {}
+  nrf_delay_ms(1000); // wait for 1s
+
   // 8 bit mode
-  nrf_delay_ms(200); // wait for >40ms
-  lcdCmd4(LCD_FUNCTIONSET|LCD_8BITMODE);
-  nrf_delay_ms(5); // wait for >4.1ms
-  lcdCmd4(LCD_FUNCTIONSET|LCD_8BITMODE);
-  nrf_delay_ms(5); // wait for >4.1ms
-  lcdCmd4(LCD_FUNCTIONSET|LCD_8BITMODE);
-  // 4 bit mode
-  lcdCmd4(LCD_FUNCTIONSET|LCD_4BITMODE);
-  lcdCmd4(LCD_FUNCTIONSET | LCD_4BITMODE | LINES);
-  lcdCmd4(LCD_DISPLAYSET | LCD_DISPLAYOFF | LCD_CURSOROFF | LCD_BLINKOFF);
+  lcdCmd8(LCD_8BITMODE);
+  nrf_delay_ms(4); // wait for >4.1ms
+  lcdCmd8(LCD_8BITMODE);
+  nrf_delay_ms(4); // wait for >4.1ms
+  lcdCmd8(LCD_8BITMODE);
+
+  lcdCmd8(LCD_4BITMODE); // enter 4 bit mode
+  lcdCmd4(LCD_4BITMODE | LINES); // set lines (and stay in 4 bit mode)
+  lcdCmd4(LCD_DISPLAYSET | LCD_DISPLAYON | LCD_CURSOROFF | LCD_BLINKOFF);
+  lcdCmd4(LCD_ENTRYMODESET | LCD_ENTRYLEFT | LCD_ENTRYSHIFTDECREMENT);
   lcdCmd4(LCD_CLEARDISPLAY);
   nrf_delay_ms(1);
-  lcdCmd4(LCD_ENTRYMODESET | LCD_ENTRYLEFT | LCD_ENTRYSHIFTDECREMENT);
   lcdCmd4(LCD_RETURNHOME);
-  nrf_delay_ms(1);
-  lcdCmd4(LCD_DISPLAYSET | LCD_DISPLAYON | LCD_CURSOROFF | LCD_BLINKOFF);
   nrf_delay_ms(1);
 }
 
