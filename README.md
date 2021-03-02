@@ -1,3 +1,10 @@
+DO NOT USE - use DOGM204-A instead. It doesn't have any of the HD447780 problems.
+
+
+
+
+
+
 Nordic NRF52 LCD driver (1602, 2004 etc) for HD447780 and I2C piggyback.
 
 A problem with the I2C piggyback is timing between data and commands which is normally resolved
